@@ -1,0 +1,90 @@
+name: Build and Package (Tauri Windows)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: 'The source branch or ref to build from'
+        default: 'main'
+        required: true
+      release_name:
+        description: 'The name for the release'
+        required: true
+
+jobs:
+  release:
+    runs-on: windows-latest
+    environment: OSSign
+
+    permissions:
+      contents: write
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          repository: 'BetterSEQTA/DesQTA'
+          ref: ${{ github.event.inputs.source_branch }}
+          fetch-depth: 1
+
+      - uses: ossign/ossign@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          installOnly: true
+
+      - name: Fix tauri signing command
+        shell: bash
+        run: |
+          jq '.bundle.windows.signCommand = "ossign.exe -t pecoff -o %1 %1"' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
+          mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Generate app icons
+        run: pnpm tauri icon static/app-icon.svg
+      
+      - name: Build Windows
+        env:
+          OSSIGN_CONFIG: ${{ secrets.OSSIGN_CONFIG }}
+        run: pnpm tauri build --target x86_64-pc-windows-msvc
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64
+          path: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/**
+            src-tauri/target/x86_64-pc-windows-msvc/release/*.sig
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/**
+            src-tauri/target/x86_64-pc-windows-msvc/release/*.sig
+            README.md
+          name: ${{ github.event.inputs.release_name }}
+          tag_name: ${{ github.run_id }}
+          body: |
+            # Signed Release ${{ github.event.inputs.release_name }}
+            
+            These are the distributable files for the signed release of DesQTA ${{ github.event.inputs.release_name }}
+
+            The source code was fetched from https://github.com/BetterSEQTA/DesQTA@${{ github.event.inputs.source_branch }}
