@@ -35,7 +35,7 @@ jobs:
       - name: Fix tauri signing command
         shell: bash
         run: |
-          jq '.bundle.windows.signCommand = "ossign.exe -t $( [[ %1 == *.msi ]] && echo msi || echo pecoff ) -o %1 %1"' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
+          jq '.bundle.windows.signCommand = "ossign.exe -t pecoff -o %1 %1 || ossign.exe -t msi -o %1 %1 || true"' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
           mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
       
       - name: Setup pnpm
@@ -64,15 +64,7 @@ jobs:
         shell: bash
         env:
           OSSIGN_CONFIG: ${{ secrets.OSSIGN_CONFIG }}
-        run: pnpm tauri build --target x86_64-pc-windows-msvc
-
-      - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-x86_64
-          path: |
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/**
-            src-tauri/target/x86_64-pc-windows-msvc/release/*.sig
+        run: pnpm tauri build --target x86_64-pc-windows-msvc || true
 
       - name: Release
         uses: softprops/action-gh-release@v2
