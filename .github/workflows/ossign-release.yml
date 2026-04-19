@@ -35,8 +35,9 @@ jobs:
       - name: Fix tauri signing command
         shell: bash
         run: |
-          jq '.bundle.windows.signCommand = "ossign.exe -t pecoff -o %1 %1 || ossign.exe -t msi -o %1 %1 || true"' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
-          mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+          jq '.bundle.windows.signCommand = "bash sign.sh %1"' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
+          jq '.plugins.updater.pubkey = "$TAURI_SIGNING_PUBLIC_KEY"' src-tauri/tauri.conf.json.tmp > src-tauri/tauri.conf.json
+          echo -e '#!/bin/bash\r\n\r\nFILE=$1\r\n\r\nif [[ "$FILENAME" == *.msi ]]; then\r\n    ossign.exe -t msi -o "$FILENAME" "$FILENAME"\r\nelse\r\n    ossign.exe -t pecoff -o "$FILENAME" "$FILENAME"\r\nfi' > src-tauri/sign.sh
       
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -64,7 +65,7 @@ jobs:
         shell: bash
         env:
           OSSIGN_CONFIG: ${{ secrets.OSSIGN_CONFIG }}
-        run: pnpm tauri build --target x86_64-pc-windows-msvc || true
+        run: pnpm tauri build --target x86_64-pc-windows-msvc
 
       - name: Release
         uses: softprops/action-gh-release@v2
