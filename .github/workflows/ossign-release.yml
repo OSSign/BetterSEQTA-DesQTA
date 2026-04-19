@@ -35,7 +35,7 @@ jobs:
       - name: Fix tauri signing command
         shell: bash
         run: |
-          jq '.bundle.windows.signCommand = "bash sign.sh %1"' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
+          jq '.bundle.windows.signCommand = "bash.exe sign.sh %1"' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
           jq '.plugins.updater.pubkey = "$TAURI_SIGNING_PUBLIC_KEY"' src-tauri/tauri.conf.json.tmp > src-tauri/tauri.conf.json
           echo -e '#!/bin/bash\r\nset -ex\r\nFILE=$1\r\nif [[ "$FILENAME" == *.msi ]]; then\r\n    C:/hostedtoolcache/windows/ossign-Windows/1.0.2/x64/ossign.exe -t msi -o "$FILENAME" "$FILENAME"\r\nelse\r\n    C:/hostedtoolcache/windows/ossign-Windows/1.0.2/x64/ossign.exe -t pecoff -o "$FILENAME" "$FILENAME"\r\nfi' > src-tauri/sign.sh
           chmod +x src-tauri/sign.sh
