@@ -33,12 +33,41 @@ jobs:
           installOnly: true
 
       - name: Fix tauri signing command
-        shell: bash
+        shell: pwsh
         run: |
-          jq '.bundle.windows.signCommand = "bash.exe sign.sh %1"' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
-          jq '.plugins.updater.pubkey = "$TAURI_SIGNING_PUBLIC_KEY"' src-tauri/tauri.conf.json.tmp > src-tauri/tauri.conf.json
-          echo -e '#!/bin/bash\r\nset -ex\r\nFILE=$1\r\nif [[ "$FILENAME" == *.msi ]]; then\r\n    C:/hostedtoolcache/windows/ossign-Windows/1.0.2/x64/ossign.exe -t msi -o "$FILENAME" "$FILENAME"\r\nelse\r\n    C:/hostedtoolcache/windows/ossign-Windows/1.0.2/x64/ossign.exe -t pecoff -o "$FILENAME" "$FILENAME"\r\nfi' > src-tauri/sign.sh
-          chmod +x src-tauri/sign.sh
+          $tauriConfPath = "src-tauri/tauri.conf.json"
+          $tauriConf = Get-Content -Raw -Path $tauriConfPath | ConvertFrom-Json
+
+          # Use a Windows-native signing command to avoid bash.exe dependency on runner PATH.
+          $tauriConf.bundle.windows.signCommand = 'powershell -ExecutionPolicy Bypass -File src-tauri/sign.ps1 "%1"'
+          if ($env:TAURI_SIGNING_PUBLIC_KEY) {
+            $tauriConf.plugins.updater.pubkey = $env:TAURI_SIGNING_PUBLIC_KEY
+          }
+
+          $tauriConf | ConvertTo-Json -Depth 100 | Set-Content -Encoding UTF8 -Path $tauriConfPath
+
+          @'
+          param(
+            [Parameter(Mandatory = $true)]
+            [string]$File
+          )
+
+          $ErrorActionPreference = "Stop"
+          $ossign = (Get-Command ossign.exe -ErrorAction SilentlyContinue)?.Source
+          if (-not $ossign) {
+            $fallback = Get-ChildItem -Path "C:/hostedtoolcache/windows/ossign-Windows" -Filter "ossign.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $fallback) {
+              throw "ossign.exe not found in PATH or hostedtoolcache."
+            }
+            $ossign = $fallback.FullName
+          }
+
+          if ($File.ToLower().EndsWith(".msi")) {
+            & $ossign -t msi -o "$File" "$File"
+          } else {
+            & $ossign -t pecoff -o "$File" "$File"
+          }
+          '@ | Set-Content -Encoding UTF8 -Path "src-tauri/sign.ps1"
       
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -63,9 +92,10 @@ jobs:
         run: pnpm tauri icon static/app-icon.svg
       
       - name: Build Windows
-        shell: bash
+        shell: pwsh
         env:
           OSSIGN_CONFIG: ${{ secrets.OSSIGN_CONFIG }}
+          OSSIGN_CONFIG_BASE64: ${{ secrets.OSSIGN_CONFIG_BASE64 || secrets.OSSIGN_CONFIG }}
         run: pnpm tauri build --target x86_64-pc-windows-msvc
 
       - name: Release
