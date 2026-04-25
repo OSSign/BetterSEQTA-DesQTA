@@ -1,5 +1,4 @@
 name: Build and Package (Tauri Windows)
-
 on:
   workflow_dispatch:
     inputs:
@@ -10,12 +9,10 @@ on:
       release_name:
         description: 'The name for the release'
         required: true
-
 jobs:
   release:
     runs-on: windows-latest
     environment: OSSign
-
     permissions:
       contents: write
       
@@ -31,7 +28,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           installOnly: true
-          
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -68,19 +65,25 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
+          # Decode config to temp file and remove from env to prevent leaking in logs
           $decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:OSSIGN_CONFIG))
           $configPath = "$env:TEMP\ossign-config.json"
           Set-Content -Path $configPath -Value $decoded -NoNewline
-          
-          # Remove env var so ossign uses the file instead
           Remove-Item Env:\OSSIGN_CONFIG -ErrorAction SilentlyContinue
+          Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
+          Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
           $env:OSSIGN_CONFIG_FILE = $configPath
 
           $ossign = (Get-ChildItem "C:\hostedtoolcache\windows\ossign-Windows" -Recurse -Filter ossign.exe).FullName
 
           & $ossign -t pecoff -c $configPath -o "src-tauri\target\x86_64-pc-windows-msvc\release\desqta.exe" "src-tauri\target\x86_64-pc-windows-msvc\release\desqta.exe"
 
+          # Re-inject signing key only for the bundle step, then clear immediately after
+          $env:TAURI_SIGNING_PRIVATE_KEY = "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
+          $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
           pnpm tauri bundle --target x86_64-pc-windows-msvc
+          Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
+          Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
 
           Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\*.msi" | ForEach-Object {
             & $ossign -t msi -c $configPath -o $_.FullName $_.FullName
@@ -89,6 +92,9 @@ jobs:
           Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\*.exe" | ForEach-Object {
             & $ossign -t pecoff -c $configPath -o $_.FullName $_.FullName
           }
+
+          # Clean up config file from disk
+          Remove-Item $configPath -ErrorAction SilentlyContinue
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -103,5 +109,4 @@ jobs:
             # Signed Release ${{ github.event.inputs.release_name }}
             
             These are the distributable files for the signed release of DesQTA ${{ github.event.inputs.release_name }}
-
             The source code was fetched from https://github.com/StroepWafel/DesQTA@${{ github.event.inputs.source_branch }}
