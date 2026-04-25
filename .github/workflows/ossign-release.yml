@@ -68,23 +68,26 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          $env:OSSIGN_CONFIG = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:OSSIGN_CONFIG))
+          $decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:OSSIGN_CONFIG))
+          $configPath = "$env:TEMP\ossign-config.json"
+          Set-Content -Path $configPath -Value $decoded -NoNewline
+
           $ossign = (Get-ChildItem "C:\hostedtoolcache\windows\ossign-Windows" -Recurse -Filter ossign.exe).FullName
 
           # Sign the exe
-          & $ossign -t pecoff -o "src-tauri\target\x86_64-pc-windows-msvc\release\desqta.exe" "src-tauri\target\x86_64-pc-windows-msvc\release\desqta.exe"
+          & $ossign -t pecoff -c $configPath -o "src-tauri\target\x86_64-pc-windows-msvc\release\desqta.exe" "src-tauri\target\x86_64-pc-windows-msvc\release\desqta.exe"
 
-          # Bundle (produces msi/nsis)
+          # Bundle
           pnpm tauri bundle --target x86_64-pc-windows-msvc
 
-          # Sign the MSI
+          # Sign MSI
           Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\*.msi" | ForEach-Object {
-            & $ossign -t msi -o $_.FullName $_.FullName
+            & $ossign -t msi -c $configPath -o $_.FullName $_.FullName
           }
 
-          # Sign the NSIS installer
+          # Sign NSIS
           Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\*.exe" | ForEach-Object {
-            & $ossign -t pecoff -o $_.FullName $_.FullName
+            & $ossign -t pecoff -c $configPath -o $_.FullName $_.FullName
           }
 
       - name: Release
