@@ -24,11 +24,6 @@ jobs:
           ref: ${{ github.event.inputs.source_branch }}
           fetch-depth: 1
 
-      - uses: ossign/ossign@main
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          installOnly: true
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -58,43 +53,38 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: pnpm tauri build --target x86_64-pc-windows-msvc --no-bundle
 
-      - name: Sign and bundle
+      - name: Sign executables
+        uses: ossign/ossign@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config: ${{ secrets.OSSIGN_CONFIG }}
+          inputFiles: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/*.exe
+    
+      - name: Bundle application
         shell: pwsh
         env:
-          OSSIGN_CONFIG: ${{ secrets.OSSIGN_CONFIG_BASE64 }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          # Decode config to temp file and remove from env to prevent leaking in logs
-          $decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:OSSIGN_CONFIG))
-          $configPath = "$env:TEMP\ossign-config.json"
-          Set-Content -Path $configPath -Value $decoded -NoNewline
-          Remove-Item Env:\OSSIGN_CONFIG -ErrorAction SilentlyContinue
-          Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
-          Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
-          $env:OSSIGN_CONFIG_FILE = $configPath
+        run: pnpm tauri bundle --target x86_64-pc-windows-msvc
 
-          $ossign = (Get-ChildItem "C:\hostedtoolcache\windows\ossign-Windows" -Recurse -Filter ossign.exe).FullName
+      - name: Sign executables
+        uses: ossign/ossign@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config: ${{ secrets.OSSIGN_CONFIG }}
+          inputFiles: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/**/*.exe
+      
+      - name: Sign executables (MSI)
+        uses: ossign/ossign@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config: ${{ secrets.OSSIGN_CONFIG }}
+          fileType: 'msi'
+          inputFiles: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/**/*.msi
 
-          & $ossign -t pecoff -c $configPath -o "src-tauri\target\x86_64-pc-windows-msvc\release\desqta.exe" "src-tauri\target\x86_64-pc-windows-msvc\release\desqta.exe"
-
-          # Re-inject signing key only for the bundle step, then clear immediately after
-          $env:TAURI_SIGNING_PRIVATE_KEY = "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
-          $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
-          pnpm tauri bundle --target x86_64-pc-windows-msvc
-          Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
-          Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
-
-          Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\*.msi" | ForEach-Object {
-            & $ossign -t msi -c $configPath -o $_.FullName $_.FullName
-          }
-
-          Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\*.exe" | ForEach-Object {
-            & $ossign -t pecoff -c $configPath -o $_.FullName $_.FullName
-          }
-
-          # Clean up config file from disk
-          Remove-Item $configPath -ErrorAction SilentlyContinue
 
       - name: Release
         uses: softprops/action-gh-release@v2
