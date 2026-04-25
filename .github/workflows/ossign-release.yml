@@ -23,7 +23,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          repository: 'BetterSEQTA/DesQTA'
+          repository: 'StroepWafel/DesQTA'
           ref: ${{ github.event.inputs.source_branch }}
           fetch-depth: 1
 
@@ -103,4 +103,4 @@ jobs:
             
             These are the distributable files for the signed release of DesQTA ${{ github.event.inputs.release_name }}
 
-            The source code was fetched from https://github.com/BetterSEQTA/DesQTA@${{ github.event.inputs.source_branch }}
+            The source code was fetched from https://github.com/StroepWafel/DesQTA@${{ github.event.inputs.source_branch }}
