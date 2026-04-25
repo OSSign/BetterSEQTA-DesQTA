@@ -23,7 +23,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          repository: 'BetterSeqta/DesQTA'
+          repository: 'BetterSEQTA/DesQTA'
           ref: ${{ github.event.inputs.source_branch }}
           fetch-depth: 1
 
