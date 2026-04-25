@@ -84,9 +84,11 @@ jobs:
       - name: Build Windows
         shell: bash
         env:
-          OSSIGN_CONFIG: ${{ secrets.OSSIGN_CONFIG }}
-        run: pnpm tauri build --target x86_64-pc-windows-msvc
-
+          OSSIGN_CONFIG: ${{ secrets.OSSIGN_CONFIG_BASE64 }}
+        run: |
+          export OSSIGN_CONFIG=$(echo "$OSSIGN_CONFIG" | base64 -d)
+          pnpm tauri build --target x86_64-pc-windows-msvc
+          
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
