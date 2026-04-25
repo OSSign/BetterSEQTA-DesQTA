@@ -31,34 +31,14 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           installOnly: true
-      - name: Fix tauri signing command
+
+      - name: Fix tauri updater pubkey
         shell: bash
         run: |
-          OSSIGN_PATH=$(find /c/hostedtoolcache/windows/ossign-Windows -name ossign.exe | head -1)
-          OSSIGN_WIN=$(cygpath -w "$OSSIGN_PATH")
-          SIGN_SCRIPT=$(cygpath -w "$(pwd)/src-tauri/sign.ps1")
-          
-          cat > src-tauri/sign.ps1 << EOF
-          \$file = \$args[0]
-          if (\$file -match '\.msi$') {
-              & '${OSSIGN_WIN}' -t msi -o \$file \$file
-          } else {
-              & '${OSSIGN_WIN}' -t pecoff -o \$file \$file
-          }
-          EOF
-
-          jq --arg cmd "powershell.exe -File \"${SIGN_SCRIPT}\" %1" \
-             '.bundle.windows.signCommand = $cmd' \
-             src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
-      
           jq '.plugins.updater.pubkey = "$TAURI_SIGNING_PUBLIC_KEY"' \
-             src-tauri/tauri.conf.json.tmp > src-tauri/tauri.conf.json
-      
-          rm src-tauri/tauri.conf.json.tmp
-      
-          echo "Sign command will be:"
-          jq '.bundle.windows.signCommand' src-tauri/tauri.conf.json
-                
+             src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
+          mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -80,15 +60,35 @@ jobs:
 
       - name: Generate app icons
         run: pnpm tauri icon static/app-icon.svg
-      
-      - name: Build Windows
+
+      - name: Build Windows (no bundle)
         shell: bash
+        run: pnpm tauri build --target x86_64-pc-windows-msvc --no-bundle
+
+      - name: Sign and bundle
+        shell: pwsh
         env:
           OSSIGN_CONFIG: ${{ secrets.OSSIGN_CONFIG_BASE64 }}
         run: |
-          export OSSIGN_CONFIG=$(echo "$OSSIGN_CONFIG" | base64 -d)
-          pnpm tauri build --target x86_64-pc-windows-msvc
-          
+          $env:OSSIGN_CONFIG = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:OSSIGN_CONFIG))
+          $ossign = (Get-ChildItem "C:\hostedtoolcache\windows\ossign-Windows" -Recurse -Filter ossign.exe).FullName
+
+          # Sign the exe
+          & $ossign -t pecoff -o "src-tauri\target\x86_64-pc-windows-msvc\release\desqta.exe" "src-tauri\target\x86_64-pc-windows-msvc\release\desqta.exe"
+
+          # Bundle (produces msi/nsis)
+          pnpm tauri bundle --target x86_64-pc-windows-msvc
+
+          # Sign the MSI
+          Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\*.msi" | ForEach-Object {
+            & $ossign -t msi -o $_.FullName $_.FullName
+          }
+
+          # Sign the NSIS installer
+          Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\*.exe" | ForEach-Object {
+            & $ossign -t pecoff -o $_.FullName $_.FullName
+          }
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
