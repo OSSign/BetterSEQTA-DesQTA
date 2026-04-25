@@ -35,33 +35,21 @@ jobs:
       - name: Fix tauri signing command
         shell: bash
         run: |
-          BASH_PATH=$(where bash | head -1 | tr '\\' '/')
+          # Find ossign binary
           OSSIGN_PATH=$(find /c/hostedtoolcache/windows/ossign-Windows -name ossign.exe | head -1)
-          
-          jq --arg bash "$BASH_PATH" \
-             '.bundle.windows.signCommand = ($bash + " sign.sh %1")' \
+          OSSIGN_WIN=$(cygpath -w "$OSSIGN_PATH" | sed 's/\\/\\\\/g')
+      
+          # Set signCommand to call ossign directly - Tauri passes %1 as the file
+          # We can't branch on file type here, so we use a PowerShell wrapper instead
+          SIGN_CMD="powershell.exe -Command \"\$f = '%1'; if (\$f -match '\.msi$') { & '${OSSIGN_WIN}' -t msi -o \$f \$f } else { & '${OSSIGN_WIN}' -t pecoff -o \$f \$f }\""
+      
+          jq --arg cmd "$SIGN_CMD" '.bundle.windows.signCommand = $cmd' \
              src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
-          
+      
           jq '.plugins.updater.pubkey = "$TAURI_SIGNING_PUBLIC_KEY"' \
              src-tauri/tauri.conf.json.tmp > src-tauri/tauri.conf.json
-          
+      
           rm src-tauri/tauri.conf.json.tmp
-          
-          cat > src-tauri/sign.sh << 'EOF'
-          #!/bin/bash
-          set -ex
-          FILE=$1
-          if [[ "$FILE" == *.msi ]]; then
-              OSSIGN_PLACEHOLDER -t msi -o "$FILE" "$FILE"
-          else
-              OSSIGN_PLACEHOLDER -t pecoff -o "$FILE" "$FILE"
-          fi
-          EOF
-          
-          # Inject the ossign path (can't use variables inside quoted heredoc)
-          sed -i "s|OSSIGN_PLACEHOLDER|$OSSIGN_PATH|g" src-tauri/sign.sh
-          
-          chmod +x src-tauri/sign.sh
       
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
