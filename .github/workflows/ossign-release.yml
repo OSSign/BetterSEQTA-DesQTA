@@ -31,14 +31,13 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           installOnly: true
-
       - name: Fix tauri signing command
         shell: bash
         run: |
           OSSIGN_PATH=$(find /c/hostedtoolcache/windows/ossign-Windows -name ossign.exe | head -1)
           OSSIGN_WIN=$(cygpath -w "$OSSIGN_PATH")
+          SIGN_SCRIPT=$(cygpath -w "$(pwd)/src-tauri/sign.ps1")
           
-          # Write a PowerShell sign script
           cat > src-tauri/sign.ps1 << EOF
           \$file = \$args[0]
           if (\$file -match '\.msi$') {
@@ -48,15 +47,18 @@ jobs:
           }
           EOF
 
-          # Set signCommand to invoke the ps1 script
-          jq '.bundle.windows.signCommand = "powershell.exe -File src-tauri/sign.ps1 %1"' \
+          jq --arg cmd "powershell.exe -File \"${SIGN_SCRIPT}\" %1" \
+             '.bundle.windows.signCommand = $cmd' \
              src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
       
           jq '.plugins.updater.pubkey = "$TAURI_SIGNING_PUBLIC_KEY"' \
              src-tauri/tauri.conf.json.tmp > src-tauri/tauri.conf.json
       
           rm src-tauri/tauri.conf.json.tmp
-          
+      
+          echo "Sign command will be:"
+          jq '.bundle.windows.signCommand' src-tauri/tauri.conf.json
+                
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
