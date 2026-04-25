@@ -63,12 +63,17 @@ jobs:
 
       - name: Build Windows (no bundle)
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: pnpm tauri build --target x86_64-pc-windows-msvc --no-bundle
 
       - name: Sign and bundle
         shell: pwsh
         env:
           OSSIGN_CONFIG: ${{ secrets.OSSIGN_CONFIG_BASE64 }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           $env:OSSIGN_CONFIG = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:OSSIGN_CONFIG))
           $ossign = (Get-ChildItem "C:\hostedtoolcache\windows\ossign-Windows" -Recurse -Filter ossign.exe).FullName
