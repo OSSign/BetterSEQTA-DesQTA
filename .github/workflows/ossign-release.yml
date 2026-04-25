@@ -31,14 +31,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           installOnly: true
-
-      - name: Fix tauri updater pubkey
-        shell: bash
-        run: |
-          jq '.plugins.updater.pubkey = "$TAURI_SIGNING_PUBLIC_KEY"' \
-             src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
-          mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
-
+          
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
