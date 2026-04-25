@@ -71,21 +71,21 @@ jobs:
           $decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:OSSIGN_CONFIG))
           $configPath = "$env:TEMP\ossign-config.json"
           Set-Content -Path $configPath -Value $decoded -NoNewline
+          
+          # Remove env var so ossign uses the file instead
+          Remove-Item Env:\OSSIGN_CONFIG -ErrorAction SilentlyContinue
+          $env:OSSIGN_CONFIG_FILE = $configPath
 
           $ossign = (Get-ChildItem "C:\hostedtoolcache\windows\ossign-Windows" -Recurse -Filter ossign.exe).FullName
 
-          # Sign the exe
           & $ossign -t pecoff -c $configPath -o "src-tauri\target\x86_64-pc-windows-msvc\release\desqta.exe" "src-tauri\target\x86_64-pc-windows-msvc\release\desqta.exe"
 
-          # Bundle
           pnpm tauri bundle --target x86_64-pc-windows-msvc
 
-          # Sign MSI
           Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\*.msi" | ForEach-Object {
             & $ossign -t msi -c $configPath -o $_.FullName $_.FullName
           }
 
-          # Sign NSIS
           Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\*.exe" | ForEach-Object {
             & $ossign -t pecoff -c $configPath -o $_.FullName $_.FullName
           }
