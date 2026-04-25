@@ -33,41 +33,35 @@ jobs:
           installOnly: true
 
       - name: Fix tauri signing command
-        shell: pwsh
+        shell: bash
         run: |
-          $tauriConfPath = "src-tauri/tauri.conf.json"
-          $tauriConf = Get-Content -Raw -Path $tauriConfPath | ConvertFrom-Json
-
-          # Use a Windows-native signing command to avoid bash.exe dependency on runner PATH.
-          $tauriConf.bundle.windows.signCommand = 'powershell -ExecutionPolicy Bypass -File src-tauri/sign.ps1 "%1"'
-          if ($env:TAURI_SIGNING_PUBLIC_KEY) {
-            $tauriConf.plugins.updater.pubkey = $env:TAURI_SIGNING_PUBLIC_KEY
-          }
-
-          $tauriConf | ConvertTo-Json -Depth 100 | Set-Content -Encoding UTF8 -Path $tauriConfPath
-
-          @'
-          param(
-            [Parameter(Mandatory = $true)]
-            [string]$File
-          )
-
-          $ErrorActionPreference = "Stop"
-          $ossign = (Get-Command ossign.exe -ErrorAction SilentlyContinue)?.Source
-          if (-not $ossign) {
-            $fallback = Get-ChildItem -Path "C:/hostedtoolcache/windows/ossign-Windows" -Filter "ossign.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $fallback) {
-              throw "ossign.exe not found in PATH or hostedtoolcache."
-            }
-            $ossign = $fallback.FullName
-          }
-
-          if ($File.ToLower().EndsWith(".msi")) {
-            & $ossign -t msi -o "$File" "$File"
-          } else {
-            & $ossign -t pecoff -o "$File" "$File"
-          }
-          '@ | Set-Content -Encoding UTF8 -Path "src-tauri/sign.ps1"
+          BASH_PATH=$(where bash | head -1 | tr '\\' '/')
+          OSSIGN_PATH=$(find /c/hostedtoolcache/windows/ossign-Windows -name ossign.exe | head -1)
+          
+          jq --arg bash "$BASH_PATH" \
+             '.bundle.windows.signCommand = ($bash + " sign.sh %1")' \
+             src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
+          
+          jq '.plugins.updater.pubkey = "$TAURI_SIGNING_PUBLIC_KEY"' \
+             src-tauri/tauri.conf.json.tmp > src-tauri/tauri.conf.json
+          
+          rm src-tauri/tauri.conf.json.tmp
+          
+          cat > src-tauri/sign.sh << 'EOF'
+          #!/bin/bash
+          set -ex
+          FILE=$1
+          if [[ "$FILE" == *.msi ]]; then
+              OSSIGN_PLACEHOLDER -t msi -o "$FILE" "$FILE"
+          else
+              OSSIGN_PLACEHOLDER -t pecoff -o "$FILE" "$FILE"
+          fi
+          EOF
+          
+          # Inject the ossign path (can't use variables inside quoted heredoc)
+          sed -i "s|OSSIGN_PLACEHOLDER|$OSSIGN_PATH|g" src-tauri/sign.sh
+          
+          chmod +x src-tauri/sign.sh
       
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -92,10 +86,9 @@ jobs:
         run: pnpm tauri icon static/app-icon.svg
       
       - name: Build Windows
-        shell: pwsh
+        shell: bash
         env:
           OSSIGN_CONFIG: ${{ secrets.OSSIGN_CONFIG }}
-          OSSIGN_CONFIG_BASE64: ${{ secrets.OSSIGN_CONFIG_BASE64 || secrets.OSSIGN_CONFIG }}
         run: pnpm tauri build --target x86_64-pc-windows-msvc
 
       - name: Release
