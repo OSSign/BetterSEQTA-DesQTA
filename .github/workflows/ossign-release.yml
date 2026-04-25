@@ -1,5 +1,4 @@
 name: Build and Package (Tauri Windows)
-
 on:
   workflow_dispatch:
     inputs:
@@ -10,12 +9,10 @@ on:
       release_name:
         description: 'The name for the release'
         required: true
-
 jobs:
   release:
     runs-on: windows-latest
     environment: OSSign
-
     permissions:
       contents: write
       
@@ -32,14 +29,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           installOnly: true
 
-      - name: Fix tauri signing command
-        shell: bash
-        run: |
-          jq '.bundle.windows.signCommand = "bash.exe sign.sh %1"' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
-          jq '.plugins.updater.pubkey = "$TAURI_SIGNING_PUBLIC_KEY"' src-tauri/tauri.conf.json.tmp > src-tauri/tauri.conf.json
-          echo -e '#!/bin/bash\r\nset -ex\r\nFILE=$1\r\nif [[ "$FILENAME" == *.msi ]]; then\r\n    C:/hostedtoolcache/windows/ossign-Windows/1.0.2/x64/ossign.exe -t msi -o "$FILENAME" "$FILENAME"\r\nelse\r\n    C:/hostedtoolcache/windows/ossign-Windows/1.0.2/x64/ossign.exe -t pecoff -o "$FILENAME" "$FILENAME"\r\nfi' > src-tauri/sign.sh
-          chmod +x src-tauri/sign.sh
-      
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -61,12 +50,51 @@ jobs:
 
       - name: Generate app icons
         run: pnpm tauri icon static/app-icon.svg
-      
-      - name: Build Windows
+
+      - name: Build Windows (no bundle)
         shell: bash
         env:
-          OSSIGN_CONFIG: ${{ secrets.OSSIGN_CONFIG }}
-        run: pnpm tauri build --target x86_64-pc-windows-msvc
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --target x86_64-pc-windows-msvc --no-bundle
+
+      - name: Sign and bundle
+        shell: pwsh
+        env:
+          OSSIGN_CONFIG: ${{ secrets.OSSIGN_CONFIG_BASE64 }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          # Decode config to temp file and remove from env to prevent leaking in logs
+          $decoded = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:OSSIGN_CONFIG))
+          $configPath = "$env:TEMP\ossign-config.json"
+          Set-Content -Path $configPath -Value $decoded -NoNewline
+          Remove-Item Env:\OSSIGN_CONFIG -ErrorAction SilentlyContinue
+          Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
+          Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
+          $env:OSSIGN_CONFIG_FILE = $configPath
+
+          $ossign = (Get-ChildItem "C:\hostedtoolcache\windows\ossign-Windows" -Recurse -Filter ossign.exe).FullName
+
+          & $ossign -t pecoff -c $configPath -o "src-tauri\target\x86_64-pc-windows-msvc\release\desqta.exe" "src-tauri\target\x86_64-pc-windows-msvc\release\desqta.exe"
+
+          # Re-inject signing key only for the bundle step, then clear immediately after
+          $env:TAURI_SIGNING_PRIVATE_KEY = "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
+          $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
+          pnpm tauri bundle --target x86_64-pc-windows-msvc
+          Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
+          Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
+
+          Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\*.msi" | ForEach-Object {
+            & $ossign -t msi -c $configPath -o $_.FullName $_.FullName
+          }
+
+          Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\*.exe" | ForEach-Object {
+            & $ossign -t pecoff -c $configPath -o $_.FullName $_.FullName
+          }
+
+          # Clean up config file from disk
+          Remove-Item $configPath -ErrorAction SilentlyContinue
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -81,5 +109,4 @@ jobs:
             # Signed Release ${{ github.event.inputs.release_name }}
             
             These are the distributable files for the signed release of DesQTA ${{ github.event.inputs.release_name }}
-
-            The source code was fetched from https://github.com/BetterSEQTA/DesQTA@${{ github.event.inputs.source_branch }}
+            The source code was fetched from https://github.com/StroepWafel/DesQTA@${{ github.event.inputs.source_branch }}
