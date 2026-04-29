@@ -1,7 +1,7 @@
 {
     "bundle": {
         "windows": {
-            "signCommand": "bash.exe ossign/sign.sh \"%1\""
+            "signCommand": "ossign/sign.sh \"%1\""
         }
     }
 }
