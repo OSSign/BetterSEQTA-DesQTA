@@ -74,10 +74,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          bash -c "echo 'hello'" || true
-          bash.exe -c "echo 'hello'" || true
-          ossign --help || true
-          ossign.exe --help || true
+          cp ossign/sign.sh /tmp/sign.sh
           pnpm tauri build --target x86_64-pc-windows-msvc --config ossign/tauri-windows-sign.merge.json
 
       - name: Verify Authenticode signatures
