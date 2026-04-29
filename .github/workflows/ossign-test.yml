@@ -2,7 +2,7 @@ name: Build and Package (Tauri Windows)
 on:
   push:
     branches:
-      - main
+      - ossign
 
 jobs:
   release:
