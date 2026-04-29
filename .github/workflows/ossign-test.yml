@@ -74,24 +74,26 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-            pnpm tauri build --target x86_64-pc-windows-msvc
-        # run: |
-        #   pnpm tauri build --target x86_64-pc-windows-msvc --config ossign/tauri-windows-sign.merge.json
+          bash -c "echo 'hello'" || true
+          bash.exe -c "echo 'hello'" || true
+          ossign --help || true
+          ossign.exe --help || true
+          pnpm tauri build --target x86_64-pc-windows-msvc --config ossign/tauri-windows-sign.merge.json
 
-    #   - name: Verify Authenticode signatures
-    #     shell: pwsh
-    #     run: |
-    #       $release = Join-Path $env:GITHUB_WORKSPACE 'src-tauri/target/x86_64-pc-windows-msvc/release'
-    #       $fail = $false
-    #       Get-ChildItem -Path $release -Recurse -Include *.exe, *.msi -File -ErrorAction SilentlyContinue | ForEach-Object {
-    #         $sig = Get-AuthenticodeSignature -FilePath $_.FullName
-    #         Write-Host "$($_.FullName): $($sig.Status)"
-    #         if ($sig.Status -ne 'Valid') {
-    #           Write-Host "::error file=$($_.FullName)::Authenticode status $($sig.StatusMessage)"
-    #           $fail = $true
-    #         }
-    #       }
-    #       if ($fail) {
-    #         exit 1
-    #       }
+      - name: Verify Authenticode signatures
+        shell: pwsh
+        run: |
+          $release = Join-Path $env:GITHUB_WORKSPACE 'src-tauri/target/x86_64-pc-windows-msvc/release'
+          $fail = $false
+          Get-ChildItem -Path $release -Recurse -Include *.exe, *.msi -File -ErrorAction SilentlyContinue | ForEach-Object {
+            $sig = Get-AuthenticodeSignature -FilePath $_.FullName
+            Write-Host "$($_.FullName): $($sig.Status)"
+            if ($sig.Status -ne 'Valid') {
+              Write-Host "::error file=$($_.FullName)::Authenticode status $($sig.StatusMessage)"
+              $fail = $true
+            }
+          }
+          if ($fail) {
+            exit 1
+          }
 
