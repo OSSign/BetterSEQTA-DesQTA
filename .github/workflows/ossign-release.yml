@@ -15,7 +15,7 @@ jobs:
     environment: OSSign
     permissions:
       contents: write
-      
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -46,45 +46,82 @@ jobs:
       - name: Generate app icons
         run: pnpm tauri icon static/app-icon.svg
 
-      - name: Build Windows (no bundle)
-        shell: bash
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri build --target x86_64-pc-windows-msvc --no-bundle
-
-      - name: Sign executables
+      - name: Install OSSign CLI
         uses: ossign/ossign@main
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config: ${{ secrets.OSSIGN_CONFIG }}
-          inputFiles: |
-            src-tauri/target/x86_64-pc-windows-msvc/release/*.exe
-    
-      - name: Bundle application
+          installOnly: true
+
+      - name: Prepare Tauri bundler signing (OSSign)
         shell: pwsh
         env:
+          OSSIGN_CONFIG_BODY: ${{ secrets.OSSIGN_CONFIG }}
+        run: |
+          $ws = $env:GITHUB_WORKSPACE
+          $cfgPath = Join-Path $ws 'ossign-ci-config.yaml'
+          Set-Content -LiteralPath $cfgPath -Value $env:OSSIGN_CONFIG_BODY -Encoding utf8
+
+          $scriptPath = Join-Path $ws 'ossign-tauri-sign.ps1'
+          @(
+            'param([Parameter(Mandatory)][string]$SignedPath)',
+            '',
+            '$config = $env:OSSIGN_CONFIG_PATH',
+            'if (-not $config -or -not (Test-Path -LiteralPath $config)) {',
+            '  Write-Error "OSSIGN_CONFIG_PATH is not set or config file is missing."',
+            '  exit 1',
+            '}',
+            '',
+            '$cmd = Get-Command ossign -ErrorAction SilentlyContinue',
+            'if (-not $cmd) {',
+            '  Write-Error "ossign executable was not found on PATH."',
+            '  exit 1',
+            '}',
+            '',
+            '$ext = [System.IO.Path]::GetExtension($SignedPath).ToLowerInvariant()',
+            '$sigType = if ($ext -eq ''.msi'') { ''msi'' } else { ''pecoff'' }',
+            '',
+            '& ossign -c $config -t $sigType -i $SignedPath -o $SignedPath',
+            'exit $LASTEXITCODE'
+          ) | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+          $signCmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -SignedPath `"%1`""
+          $mergeObj = [PSCustomObject]@{
+            bundle = [PSCustomObject]@{
+              windows = [PSCustomObject]@{
+                signCommand = $signCmd
+              }
+            }
+          }
+          $mergePath = Join-Path $ws 'src-tauri/tauri-windows-sign.merge.json'
+          $mergeObj | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $mergePath -Encoding utf8
+
+      - name: Build Windows (OSSign during bundle via signCommand)
+        shell: pwsh
+        env:
+          OSSIGN_CONFIG_PATH: ${{ github.workspace }}/ossign-ci-config.yaml
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri bundle --target x86_64-pc-windows-msvc
+        run: |
+          Set-Location $env:GITHUB_WORKSPACE
+          pnpm tauri build --target x86_64-pc-windows-msvc --config src-tauri/tauri-windows-sign.merge.json
 
-      - name: Sign executables
-        uses: ossign/ossign@main
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          config: ${{ secrets.OSSIGN_CONFIG }}
-          inputFiles: |
-            src-tauri/target/x86_64-pc-windows-msvc/release/**/*.exe
-      
-      - name: Sign executables (MSI)
-        uses: ossign/ossign@main
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          config: ${{ secrets.OSSIGN_CONFIG }}
-          fileType: 'msi'
-          inputFiles: |
-            src-tauri/target/x86_64-pc-windows-msvc/release/**/*.msi
-
+      - name: Verify Authenticode signatures
+        shell: pwsh
+        run: |
+          $release = Join-Path $env:GITHUB_WORKSPACE 'src-tauri/target/x86_64-pc-windows-msvc/release'
+          $fail = $false
+          Get-ChildItem -Path $release -Recurse -Include *.exe, *.msi -File -ErrorAction SilentlyContinue | ForEach-Object {
+            $sig = Get-AuthenticodeSignature -FilePath $_.FullName
+            Write-Host "$($_.FullName): $($sig.Status)"
+            if ($sig.Status -ne 'Valid') {
+              Write-Host "::error file=$($_.FullName)::Authenticode status $($sig.StatusMessage)"
+              $fail = $true
+            }
+          }
+          if ($fail) {
+            exit 1
+          }
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -97,6 +134,6 @@ jobs:
           tag_name: ${{ github.run_id }}
           body: |
             # Signed Release ${{ github.event.inputs.release_name }}
-            
+
             These are the distributable files for the signed release of DesQTA ${{ github.event.inputs.release_name }}
             The source code was fetched from https://github.com/StroepWafel/DesQTA@${{ github.event.inputs.source_branch }}
