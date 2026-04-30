@@ -17,11 +17,6 @@ jobs:
           repository: 'BetterSEQTA/DesQTA'
           ref: main
           fetch-depth: 1
-      
-      - name: Checkout ossign repo
-        uses: actions/checkout@v4
-        with:
-          path: ossign
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -47,6 +42,7 @@ jobs:
 
       - name: Install OSSign CLI
         uses: ossign/ossign@main
+        id: ossign
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config: |
@@ -62,6 +58,20 @@ jobs:
             }
 
           installOnly: true
+      
+      - name: Add tauri signing config
+        shell: pwsh
+        run: |
+            $mergeObj = [PSCustomObject]@{
+              bundle = [PSCustomObject]@{
+                windows = [PSCustomObject]@{
+                  signCommand = "${{ steps.ossign.outputs.ossignPath }} -t auto `"%1`""
+                }
+              }
+            }
+
+            $mergePath = Join-Path $env:GITHUB_WORKSPACE 'src-tauri/tauri-windows-sign.merge.json'
+            $mergeObj | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $mergePath -Encoding utf8
 
       - name: Build cache
         uses: swatinem/rust-cache@v2
@@ -74,7 +84,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          pnpm tauri build --target x86_64-pc-windows-msvc --config ossign/tauri-windows-sign.merge.json
+          pnpm tauri build --target x86_64-pc-windows-msvc --config src-tauri/tauri-windows-sign.merge.json
 
       - name: Verify Authenticode signatures
         shell: pwsh
