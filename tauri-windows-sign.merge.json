@@ -1,7 +1,7 @@
 {
     "bundle": {
         "windows": {
-            "signCommand": "C:\\hostedtoolcache\\windows\\ossign-Windows\\1.1.0\\x64\\ossign.exe -t auto \"%1\""
+            "signCommand": "ossign.exe -t auto -o %1 %1"
         }
     }
 }
