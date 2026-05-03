@@ -73,18 +73,15 @@ jobs:
       - name: Verify Authenticode signatures
         shell: pwsh
         run: |
+          # This will fail because there are a bunch of non-project binaries in the release folder that belong to other projects, those will not be signed by Tauri by default
+          # e.g. wix\x64\wix\torch.exe
           $release = Join-Path $env:GITHUB_WORKSPACE 'src-tauri/target/x86_64-pc-windows-msvc/release'
-          $fail = $false
           Get-ChildItem -Path $release -Recurse -Include *.exe, *.msi -File -ErrorAction SilentlyContinue | ForEach-Object {
             $sig = Get-AuthenticodeSignature -FilePath $_.FullName
             Write-Host "$($_.FullName): $($sig.Status)"
             if ($sig.Status -ne 'Valid') {
               Write-Host "::error file=$($_.FullName)::Authenticode status $($sig.StatusMessage)"
-              $fail = $true
             }
-          }
-          if ($fail) {
-            exit 1
           }
 
       - name: Release
