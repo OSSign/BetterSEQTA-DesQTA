@@ -97,4 +97,4 @@ jobs:
             # Signed Release ${{ github.event.inputs.release_name }}
             
             These are the distributable files for the signed release of DesQTA ${{ github.event.inputs.release_name }}
-            The source code was fetched from https://github.com/StroepWafel/DesQTA@${{ github.event.inputs.source_branch }}
+            The source code was fetched from https://github.com/BetterSEQTA/DesQTA @${{ github.event.inputs.source_branch }}
